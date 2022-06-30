@@ -21,25 +21,31 @@ class Board:
     def __init__(self, pieces: List) -> None:
         self.board = [[None for rank in range(8)] for column in range(8)]
         self.lastMove = None
+        self.promotion = None
 
         for piece in pieces:
             self.set_piece(piece)
 
     def get_piece(self, position: Union[Position, Tuple[int, int]]):
+        """Returns a piece at the given position"""
         if not isinstance(position, Position):
             position = Position(*position)
         return self.board[position.column][position.rank]
 
     def set_piece(self, piece):
+        """Sets a piece at it's position"""
         self.board[piece.position.column][piece.position.rank] = piece
 
     def clear_square(self, position: Position):
+        """Clears a square at the given position"""
         self.board[position.column][position.rank] = None
 
     def move_piece(self, piece, position: Position):
+        """Moves a piece to the given position"""
         validMove = piece.is_valid_move(self, position)
         # Only moves the piece if the move is valid
-        if validMove:
+        # Also only move if there is no promotion going on
+        if validMove and not self.promotion:
             # Sets last move to the current one
             self.lastMove = Move(piece, piece.position)
 
@@ -51,6 +57,11 @@ class Board:
             # Sets the hasMoved property of the piece to True for king and rooks
             if isinstance(piece, Rook) or isinstance(piece, King):
                 piece.hasMoved = True
+
+            # If a pawn reaches the end of the board, ensure promotion
+            if isinstance(piece, Pawn):
+                if piece.position.rank == 0 or piece.position.rank == 7:
+                    self.promotion = piece
 
             # Enpassant move
             if validMove == 2:
@@ -74,6 +85,11 @@ class Board:
                     rook.position.column = 5
                     self.set_piece(rook)
 
+    def promote(self, promoteTo):
+        """Promotes a pawn to a piece of the given type"""
+        self.set_piece(self.promotion.transform_to(promoteTo))
+        self.promotion = None
+
 
 class Piece:
     def __init__(self, position: Union[Position, Tuple[int, int]], color: bool):
@@ -84,7 +100,7 @@ class Piece:
         self.color = color
 
     def color_to_play(self, board: Board) -> bool:
-        # Only allows the right color to play -> white at start and then changing
+        """Only allows the right color to play -> white at the start and then changing"""
         if not board.lastMove or board.lastMove.piece.color == False:
             if self.color == True:
                 return True
@@ -92,18 +108,19 @@ class Piece:
             return True
 
     def capturing(self, board: Board, move: Position) -> bool:
-        # Colors can only capture enemey colored pieces not their own
+        """Colors can only capture enemey colored pieces not their own"""
         if not board.get_piece(move) or board.get_piece(move).color != self.color:
             return True
         else:
             return False
 
     def generally_valid_move(self, board: Board, move: Position) -> bool:
-        # Checks for some basic conditions that all pieces have in common for a valid move
+        """Checks for some basic conditions that all pieces have in common for a valid move"""
         if self.color_to_play(board) and self.capturing(board, move):
             return True
 
     def transform_to(self, pieceType):
+        """Transforms a piece to a new type"""
         return pieceType(self.position, self.color)
 
 

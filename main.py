@@ -24,6 +24,12 @@ background = pygame.Surface((WIDTH, HEIGHT))
 background.fill(BACKGROUND_COLOR)
 chessboard = pygame.Surface((8 * TILE_SIZE, 8 * TILE_SIZE))
 
+# Promotion box settings
+PROMOTION_BORDER_SIZE = 3
+PROMOTION_BORDER_COLOR = "#272522"
+PROMOTION_BUTTON_BACKGROUND_COLOR = "#1F1E1B"
+PROMOTION_PROMOTE_TO_PIECES = (chess.Queen, chess.Knight, chess.Rook, chess.Bishop)
+
 
 def generate_board():
     """Generates a board with pieces in the correct positions"""
@@ -103,9 +109,72 @@ def get_mouse_position() -> chess.Position:
         return None
 
 
+def get_clicked_promotion():
+    """Gets the clicked promotion piece under the mouse"""
+    BORDER_SIZE = PROMOTION_BORDER_SIZE
+
+    mouse = pygame.mouse.get_pos()
+
+    # Box position, width and height
+    width, height = 4 * (TILE_SIZE + BORDER_SIZE) + BORDER_SIZE, TILE_SIZE + BORDER_SIZE * 2
+    left = WIDTH / 2 - width / 2
+    top = (HEIGHT - chessboard.get_height()) / 2 - height * 1.1
+
+    # Gets the clicked piece and returns it
+    buttons = [
+        pygame.Rect(left + BORDER_SIZE + (TILE_SIZE + BORDER_SIZE) * i, top + BORDER_SIZE, TILE_SIZE, TILE_SIZE)
+        for i in range(4)
+    ]
+    for button, piece in zip(buttons, PROMOTION_PROMOTE_TO_PIECES):
+        if button.collidepoint(mouse):
+            return piece
+
+
+def draw_promotion_box(pieceColor: bool = None):
+    """Draws the promotion box"""
+    BORDER_COLOR = PROMOTION_BORDER_COLOR
+    BORDER_SIZE = PROMOTION_BORDER_SIZE
+    BUTTON_BACKGROUND_COLOR = PROMOTION_BUTTON_BACKGROUND_COLOR
+
+    promotionBox = pygame.Surface((4 * (TILE_SIZE + BORDER_SIZE) + BORDER_SIZE, TILE_SIZE + BORDER_SIZE * 2))
+    # If the piece color is not specified, draw the box as background
+    if pieceColor is not None:
+        # The actual box
+        promotionBox.fill(BORDER_COLOR)
+
+        # Loops through all the promotion pieces and draws them into the box
+        for i, piece in enumerate(PROMOTION_PROMOTE_TO_PIECES):
+            square = pygame.Rect((i * (TILE_SIZE + BORDER_SIZE) + BORDER_SIZE, BORDER_SIZE, TILE_SIZE, TILE_SIZE))
+            pygame.draw.rect(promotionBox, BUTTON_BACKGROUND_COLOR, square)
+            if pieceColor:
+                promotionBox.blit(piece.whiteImg, square)
+            else:
+                promotionBox.blit(piece.blackImg, square)
+    else:
+        # As background
+        promotionBox.fill(BACKGROUND_COLOR)
+
+    # Draws the promotion box onto the screen
+    win.blit(
+        promotionBox,
+        (
+            WIDTH / 2 - promotionBox.get_width() / 2,
+            (HEIGHT - chessboard.get_height()) / 2 - promotionBox.get_height() * 1.1,
+        ),
+    )
+
+
 def update(updateBoard: bool, board: chess.Board, selectedPiece: chess.Piece):
     """Updates the board"""
+    # Draws stuff only when needed
     if updateBoard:
+        # Promotion box
+        if board.promotion:
+            draw_promotion_box(board.promotion.color)
+        else:
+            draw_promotion_box()
+
+        # Chessboard
         draw_board(board, selectedPiece)
         win.blit(chessboard, (WIDTH / 2 - 8 / 2 * TILE_SIZE, HEIGHT / 2 - 8 / 2 * TILE_SIZE))
 
@@ -114,14 +183,12 @@ def update(updateBoard: bool, board: chess.Board, selectedPiece: chess.Piece):
 
 def main():
     board = generate_board()
+    selectedPiece = None
 
     # Draws the screen for the first time
     chess.assign_images(TILE_SIZE)
     win.blit(background, (0, 0))
-    draw_board(board)
-    win.blit(chessboard, (WIDTH / 2 - 8 / 2 * TILE_SIZE, HEIGHT / 2 - 8 / 2 * TILE_SIZE))
-
-    selectedPiece = None
+    update(True, board, selectedPiece)
 
     clock = pygame.time.Clock()
     run = True
@@ -132,20 +199,30 @@ def main():
             if event.type == pygame.QUIT:
                 run = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                # If there is a selected piece, move it
-                if selectedPiece:
-                    clickedTile = get_mouse_position()
-                    # Only move the selected piece when clicked on the board
-                    if clickedTile:
-                        # Do not move to the same position as you are already on
-                        if clickedTile != selectedPiece.position:
-                            board.move_piece(selectedPiece, clickedTile)
-                    selectedPiece = None
-                    updateBoard = True
+                if board.promotion:
+                    # Promoting a pawn
+                    promoteTo = get_clicked_promotion()
+                    if promoteTo:
+                        board.promote(promoteTo)
+                        updateBoard = True
                 else:
-                    # Selects a piece
-                    selectedPiece = board.get_piece(get_mouse_position())
-                    updateBoard = True
+                    # Moving and selecting pieces
+                    # If there is a selected piece, move it
+                    clickedTile = get_mouse_position()
+                    if selectedPiece:
+                        # Only move the selected piece when clicked on the board
+                        if clickedTile:
+                            # Do not move to the same position as you are already on
+                            if clickedTile != selectedPiece.position:
+                                board.move_piece(selectedPiece, clickedTile)
+                        selectedPiece = None
+                        updateBoard = True
+                    else:
+                        # Only selects a piece when clicked on the board
+                        if clickedTile:
+                            # Selects a piece
+                            selectedPiece = board.get_piece(get_mouse_position())
+                            updateBoard = True
 
         # Updates the board
         update(updateBoard, board, selectedPiece)
