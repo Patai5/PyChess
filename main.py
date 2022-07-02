@@ -3,8 +3,8 @@ import pygame
 import chess
 
 # Window settings
-WIDTH = 800
-HEIGHT = 800
+WIDTH = 1000
+HEIGHT = 1000
 FPS = 60
 
 # Pygame setup
@@ -12,11 +12,13 @@ win = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Chess")
 
 # Chessboard visual settings
-TILE_SIZE = 75
+TILE_SIZE = 90
 WHITE_COLOR = (238, 238, 210)
 BLACK_COLOR = (118, 150, 86)
 WHITE_SELECTED_COLOR = (246, 246, 105)
 BLACK_SELECTED_COLOR = (186, 202, 43)
+WHITE_HINT_COLOR = (255, 204, 203)
+BLACK_HINT_COLOR = (220, 148, 146)
 
 # Background visual settings
 BACKGROUND_COLOR = (49, 46, 43)
@@ -62,25 +64,39 @@ def generate_board():
 
 def draw_board(board: chess.Board, selectedPiece: chess.Piece = None):
     """Draws the board with all the pieces"""
+    # Gets the valid moves if there is a selected piece
+    if selectedPiece:
+        possibleMoves = selectedPiece.get_valid_moves(board)
+
     # Looping through all the tiles
     for column in range(8):
         for rank in range(8):
-            # Background color for the selected piece
-            if selectedPiece and selectedPiece.position == (column, rank):
-                if (rank + column) % 2 == 0:
-                    color = WHITE_SELECTED_COLOR
-                else:
-                    color = BLACK_SELECTED_COLOR
+            # Background color for the square
+            # Default colors unless rewriten below
+            white = WHITE_COLOR
+            black = BLACK_COLOR
+            # While having a selected piece
+            if selectedPiece:
+                # The selected square
+                if selectedPiece.position == (column, rank):
+                    white = WHITE_SELECTED_COLOR
+                    black = BLACK_SELECTED_COLOR
+                # Available moves
+                elif chess.Position(column, rank) in possibleMoves:
+                    white = WHITE_HINT_COLOR
+                    black = BLACK_HINT_COLOR
+
+            # Switches black and white color
+            if (rank + column) % 2 == 0:
+                color = white
             else:
-                if (rank + column) % 2 == 0:
-                    color = WHITE_COLOR
-                else:
-                    color = BLACK_COLOR
+                color = black
 
             # Gets the tile and draws it
             tile = pygame.Rect((column * TILE_SIZE, rank * TILE_SIZE), (TILE_SIZE, TILE_SIZE))
             pygame.draw.rect(chessboard, color, tile)
 
+            # Adds the piece image to the square
             piece = board.get_piece((column, rank))
             if piece:
                 if piece.color == False:
@@ -212,10 +228,11 @@ def main():
                     if selectedPiece:
                         # Only move the selected piece when clicked on the board
                         if clickedTile:
-                            # Do not move to the same position as you are already on
-                            if clickedTile != selectedPiece.position:
-                                board.move_piece(selectedPiece, clickedTile)
-                        selectedPiece = None
+                            # Only move to a valid position
+                            if clickedTile in selectedPiece.get_valid_moves(board):
+                                board.move(selectedPiece, clickedTile)
+                                updateBoard = True
+                            selectedPiece = None
                         updateBoard = True
                     else:
                         # Only selects a piece when clicked on the board

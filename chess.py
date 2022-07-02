@@ -16,6 +16,17 @@ class Position:
     def __eq__(self, other):
         return (self.column, self.rank) == other
 
+    def __iter__(self):
+        yield self.column
+        yield self.rank
+
+    def is_in_bounds(self) -> bool:
+        """Returns a bool value representing if the position is a valid square on a chessboard"""
+        if 7 >= self.column >= 0 and 7 >= self.rank >= 0:
+            return True
+        else:
+            return False
+
 
 class Board:
     def __init__(self, pieces: List) -> None:
@@ -26,69 +37,125 @@ class Board:
         for piece in pieces:
             self.set_piece(piece)
 
+            if isinstance(piece, King):
+                if piece.color == True:
+                    self.whiteKing = piece
+                else:
+                    self.blackKing = piece
+
     def get_piece(self, position: Union[Position, Tuple[int, int]]):
         """Returns a piece at the given position"""
         if not isinstance(position, Position):
             position = Position(*position)
         return self.board[position.column][position.rank]
 
-    def set_piece(self, piece):
+    def get_pieces(self, color: bool = None):
+        """Returns all pieces. If color is given, only returns pieces of that color"""
+        pieces = []
+        for column in range(8):
+            for rank in range(8):
+                piece = self.get_piece((column, rank))
+                if piece and not color or piece and color and piece.color == color:
+                    pieces.append(piece)
+        return pieces
+
+    def set_piece(self, piece, position: Position = None):
         """Sets a piece at it's position"""
+        # Uses the position of the piece by default. If specified, uses the given position
+        if position:
+            piece.position = position
         self.board[piece.position.column][piece.position.rank] = piece
 
     def clear_square(self, position: Position):
         """Clears a square at the given position"""
         self.board[position.column][position.rank] = None
 
-    def move_piece(self, piece, position: Position):
-        """Moves a piece to the given position"""
-        validMove = piece.is_valid_move(self, position)
-        # Only moves the piece if the move is valid
-        # Also only move if there is no promotion going on
-        if validMove and not self.promotion:
-            # Sets last move to the current one
+    def move_piece(self, piece, position: Position, tryMove: bool = False):
+        """Moves a piece to the given position\n
+        - "tryMove" argument is used for checking purposes -> "lastMove" and "hasMove" are not stored"""
+        if not tryMove:
+            # Sets the last move as the move currently made
             self.lastMove = Move(piece, piece.position)
 
-            # Moves the piece to the new position and clears the old one
-            self.clear_square(piece.position)
-            piece.position = position
-            self.set_piece(piece)
+        # Moves the piece
+        self.clear_square(piece.position)
+        self.set_piece(piece, position)
 
-            # Sets the hasMoved property of the piece to True for king and rooks
-            if isinstance(piece, Rook) or isinstance(piece, King):
+        if not tryMove:
+            # For rooks and king sets their hasMoved property
+            if isinstance(piece, (King, Rook)) and not piece.hasMoved:
                 piece.hasMoved = True
 
-            # If a pawn reaches the end of the board, ensure promotion
-            if isinstance(piece, Pawn):
-                if piece.position.rank == 0 or piece.position.rank == 7:
-                    self.promotion = piece
+    def move(self, piece, position: Position):
+        """Moves a piece to the given position"""
+        # Enpassant move
+        if self.is_enpassant(piece, position):
+            self.enpassant(piece, position)
+        # Castling move
+        elif self.is_castling(piece, position):
+            self.castle(piece, position)
+        # Promotion
+        elif self.is_promotion(piece, position):
+            self.move_piece(piece, position)
+            self.promotion = piece
+        # Normal move
+        else:
+            self.move_piece(piece, position)
 
-            # Enpassant move
-            if validMove == 2:
-                if piece.color == True:
-                    self.clear_square(Position(piece.position.column, piece.position.rank + 1))
-                else:
-                    self.clear_square(Position(piece.position.column, piece.position.rank - 1))
+    def is_enpassant(self, piece, position: Position) -> bool:
+        """Returns true if the move is an enpassant move"""
+        if isinstance(piece, Pawn):
+            if piece.position.column != position.column:
+                if not self.get_piece(position):
+                    return True
+        return False
 
-            # Castling move
-            if validMove == 3:
-                # Queen side castling
-                if piece.position.column == 2:
-                    rook = self.get_piece((0, piece.position.rank))
-                    self.clear_square(rook.position)
-                    rook.position.column = 3
-                    self.set_piece(rook)
-                # King side castling
-                else:
-                    rook = self.get_piece((7, piece.position.rank))
-                    self.clear_square(rook.position)
-                    rook.position.column = 5
-                    self.set_piece(rook)
+    def enpassant(self, piece, position: Position):
+        """Does the enpassant move"""
+        self.move_piece(piece, position)
+        # Clears the enpassanted pawn
+        if piece.color == True:
+            self.clear_square(Position(piece.position.column, piece.position.rank + 1))
+        else:
+            self.clear_square(Position(piece.position.column, piece.position.rank - 1))
+
+    def is_castling(self, piece, position: Position) -> bool:
+        """Returns true if the move is a castling move"""
+        if isinstance(piece, King) and not piece.hasMoved:
+            if position.column == 2 or position.column == 6:
+                return True
+        return False
+
+    def castle(self, piece, position: Position):
+        """Does the castling move"""
+        # Queen side castling
+        if position.column == 2:
+            rook = self.get_piece((0, piece.position.rank))
+            self.move_piece(rook, Position(3, rook.position.rank))
+        # King side castling
+        else:
+            rook = self.get_piece((7, piece.position.rank))
+            self.move_piece(rook, Position(5, rook.position.rank))
+
+        # Moves the king
+        self.move_piece(piece, position)
+
+    def is_promotion(self, piece, position: Position) -> bool:
+        if isinstance(piece, Pawn):
+            if position.rank == 0 or position.rank == 7:
+                return True
 
     def promote(self, promoteTo):
         """Promotes a pawn to a piece of the given type"""
         self.set_piece(self.promotion.transform_to(promoteTo))
         self.promotion = None
+
+    def get_king(self, color: bool):
+        """Returns the king of the given color"""
+        if color:
+            return self.whiteKing
+        else:
+            return self.blackKing
 
 
 class Piece:
@@ -99,29 +166,73 @@ class Piece:
             self.position = Position(*position)
         self.color = color
 
-    def color_to_play(self, board: Board) -> bool:
-        """Only allows the right color to play -> white at the start and then changing"""
-        if not board.lastMove or board.lastMove.piece.color == False:
-            if self.color == True:
-                return True
-        elif self.color == False:
-            return True
+    def try_check(self, board: Board, move: Position) -> bool:
+        """Returns a boolean indicating if the king will get into a check after the move is done"""
+        # Stores the original position and the possibly captured piece in case of a check to revert it back
+        origPosition = Position(tuple(self.position))
+        origPiece = board.get_piece(move)
 
-    def capturing(self, board: Board, move: Position) -> bool:
-        """Colors can only capture enemey colored pieces not their own"""
-        if not board.get_piece(move) or board.get_piece(move).color != self.color:
-            return True
-        else:
-            return False
+        board.move_piece(self, move, tryMove=True)
 
-    def generally_valid_move(self, board: Board, move: Position) -> bool:
-        """Checks for some basic conditions that all pieces have in common for a valid move"""
-        if self.color_to_play(board) and self.capturing(board, move):
-            return True
+        # Checks for a check
+        check = board.get_king(self.color).is_under_check(board)
+
+        # Reverts the moves
+        board.move_piece(self, origPosition, tryMove=True)
+        if origPiece:
+            board.set_piece(origPiece)
+
+        return check
 
     def transform_to(self, pieceType):
         """Transforms a piece to a new type"""
         return pieceType(self.position, self.color)
+
+    def valid_empty_or_capturing(self, board: Board, position: Position):
+        """You can only move to an empty square or capture an enemy piece not yours"""
+        if not board.get_piece(position):
+            return True
+        else:
+            return self.valid_capturing(board, position)
+
+    def valid_capturing(self, board: Board, position: Position) -> bool:
+        """Colors can only capture enemey colored pieces not their own"""
+        piece = board.get_piece(position)
+        if piece and piece.color != self.color:
+            return position
+        else:
+            return None
+
+
+def color_to_play(get_valid_moves):
+    """Decorator function that only allows the right color to play -> white at the start and then changing"""
+
+    def wrapper(*args, **kwargs):
+        piece = args[0]
+        board = args[1]
+        # Right color to play
+        if not board.lastMove and piece.color == True or board.lastMove and board.lastMove.piece.color != piece.color:
+            return get_valid_moves(*args, **kwargs)
+        # Wrong color to play
+        else:
+            return []
+
+    return wrapper
+
+
+def filter_checks(get_valid_moves):
+    """Decorator function to filter out positions where you end up in check from function Piece.get_valid_moves"""
+
+    def wrapper(*args, **kwargs):
+        validPositions = get_valid_moves(*args, **kwargs)
+        # We will not remove the checked positions from the list if the flag noFilterChecks exists
+        if not "noFilterChecks" in kwargs:
+            for position in validPositions[:]:
+                if args[0].try_check(args[1], position):
+                    validPositions.remove(position)
+        return validPositions
+
+    return wrapper
 
 
 class Move:
@@ -134,47 +245,55 @@ class Pawn(Piece):
     def __init__(self, position: Position, color: bool):
         super().__init__(position, color)
 
-    def is_valid_move(self, board: Board, move: Position) -> bool:
-        if not super().generally_valid_move(board, move):
-            return False
+    @color_to_play
+    @filter_checks
+    def get_valid_moves(self, board: Board, **kwargs) -> list:
+        """Returns a list of all valid moves for the piece"""
+        validMoves = []
         # Moving just forward without capturing
-        elif self.position.column == move.column:
-            if not board.get_piece(move):
-                if self.color == True:
-                    if self.position.rank == move.rank + 1:
-                        return True
-                    # Starting position can move two squares
-                    elif self.position.rank == 6 and self.position.rank == move.rank + 2:
-                        if not board.get_piece((move.column, move.rank + 1)):
-                            return True
-                else:
-                    if self.position.rank == move.rank - 1:
-                        return True
-                    # Starting position can move two squares
-                    elif self.position.rank == 1 and self.position.rank == move.rank - 2:
-                        if not board.get_piece((move.column, move.rank - 1)):
-                            return True
+        if self.color == True:
+            rank, rank1 = -1, 6
+        else:
+            rank, rank1 = 1, 1
+
+        position = Position(self.position.column, self.position.rank + rank)
+        if not board.get_piece(position):
+            validMoves.append(position)
+            position = Position(self.position.column, self.position.rank + rank * 2)
+            if self.position.rank == rank1 and not board.get_piece(position):
+                validMoves.append(position)
+
         # Capturing a piece
-        elif self.position.column == move.column + 1 or self.position.column == move.column - 1:
-            # Regular capture case
-            if board.get_piece(move) and board.get_piece(move).color != self.color:
-                if self.color == True:
-                    if self.position.rank == move.rank + 1:
-                        return True
-                else:
-                    if self.position.rank == move.rank - 1:
-                        return True
-            # Enpassant capture case
-            elif board.lastMove and board.lastMove.piece.position.column == move.column:
-                if isinstance(board.lastMove.piece, Pawn):
-                    if self.color == 1:
-                        if self.position.rank == 3 and move.rank == 2:
-                            if board.lastMove.start.rank == 1 and board.lastMove.piece.position.rank == 3:
-                                return 2
-                    else:
-                        if self.position.rank == 4 and move.rank == 5:
-                            if board.lastMove.start.rank == 6 and board.lastMove.piece.position.rank == 4:
-                                return 2
+        # Regular capture case
+        if self.color == True:
+            rank = -1
+        else:
+            rank = +1
+
+        if self.position.column != 0:
+            position = Position((self.position.column - 1, self.position.rank + rank))
+            if self.valid_capturing(board, position):
+                validMoves.append(position)
+        if self.position.column != 7:
+            position = Position(self.position.column + 1, self.position.rank + rank)
+            if self.valid_capturing(board, position):
+                validMoves.append(position)
+
+        # Enpassant capture case
+        if self.color == True:
+            rank, rank1, rank2 = -1, 3, 1
+        else:
+            rank, rank1, rank2 = +1, 4, 6
+
+        if self.position.rank == rank1:
+            if board.lastMove and isinstance(board.lastMove.piece, Pawn):
+                if board.lastMove.start.rank == rank2 and board.lastMove.piece.position.rank == rank1:
+                    if board.lastMove.start.column == self.position.column - 1:
+                        validMoves.append(Position((self.position.column - 1, self.position.rank + rank)))
+                    elif board.lastMove.start.column == self.position.column + 1:
+                        validMoves.append(Position((self.position.column + 1, self.position.rank + rank)))
+
+        return validMoves
 
 
 class Rook(Piece):
@@ -182,88 +301,120 @@ class Rook(Piece):
         super().__init__(position, color)
         self.hasMoved = False
 
-    def is_valid_move(self, board: Board, move: Position) -> bool:
-        if not super().generally_valid_move(board, move):
-            return False
-        # On both cases of movement we are looking if we are not jumping over some pieces
-
-        # Moving vertically
-        elif self.position.column == move.column:
-            if self.position.rank > move.rank:
-                for rank in range(move.rank + 1, self.position.rank):
-                    if board.get_piece((move.column, rank)):
-                        return False
-            else:
-                for rank in range(self.position.rank + 1, move.rank):
-                    if board.get_piece((move.column, rank)):
-                        return False
-            return True
-        # Moving horizontally
-        elif self.position.rank == move.rank:
-            if self.position.column > move.column:
-                for column in range(move.column + 1, self.position.column):
-                    if board.get_piece((column, move.rank)):
-                        return False
-            else:
-                for column in range(self.position.column + 1, move.column):
-                    if board.get_piece((column, move.rank)):
-                        return False
-            return True
+    @color_to_play
+    @filter_checks
+    def get_valid_moves(self, board: Board, **kwargs) -> list:
+        """Returns a list of all valid moves for the piece"""
+        # Rook can move in any direction
+        validMoves = []
+        # Left
+        for column in reversed(range(0, self.position.column)):
+            position = Position((column, self.position.rank))
+            if self.valid_empty_or_capturing(board, position):
+                validMoves.append(position)
+            if board.get_piece(position):
+                break
+        # Right
+        for column in range(self.position.column + 1, 8):
+            position = Position((column, self.position.rank))
+            if self.valid_empty_or_capturing(board, position):
+                validMoves.append(position)
+            if board.get_piece(position):
+                break
+        # Up
+        for rank in reversed(range(0, self.position.rank)):
+            position = Position((self.position.column, rank))
+            if self.valid_empty_or_capturing(board, position):
+                validMoves.append(position)
+            if board.get_piece(position):
+                break
+        # Down
+        for rank in range(self.position.rank + 1, 8):
+            position = Position((self.position.column, rank))
+            if self.valid_empty_or_capturing(board, position):
+                validMoves.append(position)
+            if board.get_piece(position):
+                break
+        return validMoves
 
 
 class Knight(Piece):
     def __init__(self, position: Position, color: bool):
         super().__init__(position, color)
 
-    def is_valid_move(self, board: Board, move: Position) -> bool:
-        if not super().generally_valid_move(board, move):
-            return False
-        # Moving in a L shape
-        elif abs(self.position.column - move.column) == 2 and abs(self.position.rank - move.rank) == 1:
-            return True
-        elif abs(self.position.column - move.column) == 1 and abs(self.position.rank - move.rank) == 2:
-            return True
+    @color_to_play
+    @filter_checks
+    def get_valid_moves(self, board: Board, **kwargs) -> list:
+        """Returns a list of all valid moves for the piece"""
+        # Horse can only move in 8 different combinations
+        combinations = [[-2, -1], [-1, -2], [-2, 1], [1, -2], [2, -1], [-1, 2], [2, 1], [1, 2]]
+
+        validMoves = []
+        for position in combinations:
+            position = Position(self.position.column + position[0], self.position.rank + position[1])
+            if position.is_in_bounds():
+                if self.valid_empty_or_capturing(board, position):
+                    validMoves.append(position)
+        return validMoves
 
 
 class Bishop(Piece):
     def __init__(self, position: Position, color: bool):
         super().__init__(position, color)
 
-    def is_valid_move(self, board: Board, move: Position) -> bool:
-        if not super().generally_valid_move(board, move):
-            return False
-        # Bishop can only move diagonally
-        if abs(self.position.column - move.column) == abs(self.position.rank - move.rank):
-            for i in range(1, abs(self.position.column - move.column)):
-                # Checking the tiles for all four diagonals
-                if self.position.column > move.column:
-                    if self.position.rank > move.rank:
-                        if board.get_piece((self.position.column - i, self.position.rank - i)):
-                            return False
-                    else:
-                        if board.get_piece((self.position.column - i, self.position.rank + i)):
-                            return False
-                else:
-                    if self.position.rank > move.rank:
-                        if board.get_piece((self.position.column + i, self.position.rank - i)):
-                            return False
-                    else:
-                        if board.get_piece((self.position.column + i, self.position.rank + i)):
-                            return False
-            return True
+    @color_to_play
+    @filter_checks
+    def get_valid_moves(self, board: Board, **kwargs) -> list:
+        """Returns a list of all valid moves for the piece"""
+        # Bishop can only move in 4 diagonal directions
+        validMoves = []
+        # Top-left
+        less = min(self.position.column, self.position.rank)
+        for i in range(1, less + 1):
+            position = Position((self.position.column - i, self.position.rank - i))
+            if self.valid_empty_or_capturing(board, position):
+                validMoves.append(position)
+            if board.get_piece(position):
+                break
+        # Top-right
+        less = min(7 - self.position.column, self.position.rank)
+        for i in range(1, less + 1):
+            position = Position((self.position.column + i, self.position.rank - i))
+            if self.valid_empty_or_capturing(board, position):
+                validMoves.append(position)
+            if board.get_piece(position):
+                break
+        # Bottom-right
+        less = min(7 - self.position.column, 7 - self.position.rank)
+        for i in range(1, less + 1):
+            position = Position((self.position.column + i, self.position.rank + i))
+            if self.valid_empty_or_capturing(board, position):
+                validMoves.append(position)
+            if board.get_piece(position):
+                break
+        # Bottom-left
+        less = min(self.position.column, 7 - self.position.rank)
+        for i in range(1, less + 1):
+            position = Position((self.position.column - i, self.position.rank + i))
+            if self.valid_empty_or_capturing(board, position):
+                validMoves.append(position)
+            if board.get_piece(position):
+                break
+        return validMoves
 
 
 class Queen(Piece):
     def __init__(self, position: Position, color: bool):
         super().__init__(position, color)
 
-    def is_valid_move(self, board: Board, move: Position) -> bool:
-        if not super().generally_valid_move(board, move):
-            return False
-        # Queen can move in any direction
+    @color_to_play
+    @filter_checks
+    def get_valid_moves(self, board: Board, **kwargs) -> list:
+        """Returns a list of all valid moves for the piece"""
         # We can inherit the Rook and Bishop classes to make this easier
-        if self.transform_to(Rook).is_valid_move(board, move) or self.transform_to(Bishop).is_valid_move(board, move):
-            return True
+        validMoves = self.transform_to(Rook).get_valid_moves(board) + self.transform_to(Bishop).get_valid_moves(board)
+        board.set_piece(self)
+        return validMoves
 
 
 class King(Piece):
@@ -271,41 +422,105 @@ class King(Piece):
         super().__init__(position, color)
         self.hasMoved = False
 
-    def is_valid_move(self, board: Board, move: Position) -> bool:
-        if not super().generally_valid_move(board, move):
-            return False
-        # King can move in any direction but only one square
-        if abs(self.position.column - move.column) in (0, 1) and abs(self.position.rank - move.rank) in (0, 1):
+    def is_under_check(self, board: Board) -> bool:
+        """Checks if the king is under check by any enemy piece"""
+
+        def check_piece(firstInstanceOf: Piece, instancesOf: List[Piece] = None) -> bool:
+            """Checks if the piece can attack the king by looking at it's valid moves from the king's position and
+            looking if there is such piece in the list of valid moves for that piece"""  # the fuck is this sentence lmao
+            # If instancesOf is None, we set instancesOf as the firstInstanceOf
+            if not instancesOf:
+                instancesOf = firstInstanceOf
+            # Pawn
+            if isinstance(firstInstanceOf, Pawn):
+                # Pawn can only move forward
+                if self.color:
+                    rank = self.position.rank - 1
+                else:
+                    rank = self.position.rank + 1
+                # We can capture to the left and right
+                for position in ((self.position.column - 1, rank), (self.position.column + 1, rank)):
+                    position = Position(position)
+                    # If the position is valid
+                    if position.is_in_bounds():
+                        # If there is a pawn of a different color, we are under check
+                        if (
+                            isinstance(board.get_piece(position), Pawn)
+                            and board.get_piece(position).color != self.color
+                        ):
+                            return True
+                else:
+                    return False
+            # Normal
+            else:
+                # Filters out only the positions where the piece of the enemy color is present
+                return tuple(
+                    filter(
+                        lambda position: True
+                        if isinstance(board.get_piece(position), instancesOf)
+                        and board.get_piece(position).color != self.color
+                        else False,
+                        self.transform_to(firstInstanceOf).get_valid_moves(board, noFilterChecks=True),
+                    )
+                )
+
+        # Pawn
+        if check_piece(Pawn):
+            return True
+        # Rook and queen
+        if check_piece(Rook, (Rook, Queen)):
+            return True
+        # Knight
+        if check_piece(Knight):
+            return True
+        # Bishop and queen
+        if check_piece(Bishop, (Bishop, Queen)):
             return True
 
-        # Castling
-        if self.hasMoved == False:
-            # Can only castle to these tiles
-            if move.column == 2 or move.column == 6:
-                # Gets the rank depending on the color
-                if self.color == False:
-                    rank = 0
-                else:
+    @color_to_play
+    @filter_checks
+    def get_valid_moves(self, board: Board, **kwargs) -> list:
+        """Returns a list of all valid moves for the piece"""
+        # King can move in any direction one tile
+        validMoves = []
+        # Looping through 3x3 grid around the king
+        for column in range(self.position.column - 1, self.position.column + 2):
+            for rank in range(self.position.rank - 1, self.position.rank + 2):
+                possibleMove = Position((column, rank))
+                # Not continue if the move is on your own square
+                if not possibleMove == self.position:
+                    # Check if the move is in bounds of the chess board
+                    if possibleMove.is_in_bounds():
+                        # Only move to empty squares or a square with an enemy piece not yours
+                        if self.valid_empty_or_capturing(board, possibleMove):
+                            validMoves.append(possibleMove)
+
+        # King can also castle if it has not moved yet
+        if not self.hasMoved:
+            # Can't castle if the king is under check
+            if not self.try_check(board, self.position):
+                # King can castle with a rook that also hasn't moved yet
+                # There must also not be any pieces inbetween the king and the rook
+                if self.color == True:
                     rank = 7
-
-                # Gets the rook and inbetween pieces
-                # Queen side castle
-                if move.column == 2:
-                    rook = board.get_piece((0, rank))
-                    inbetweenPieces = (
-                        board.get_piece((1, rank)),
-                        board.get_piece((2, rank)),
-                        board.get_piece((3, rank)),
-                    )
-                # King side castle
                 else:
-                    rook = board.get_piece((7, rank))
-                    inbetweenPieces = (board.get_piece((5, rank)), board.get_piece((6, rank)))
-
-                # Checks if the rook hasn't moved yet and if there are no pieces inbetween
-                if rook and isinstance(rook, Rook) and rook.hasMoved == False:
-                    if all(not square for square in inbetweenPieces):
-                        return 3
+                    rank = 0
+                # Queenside castle
+                if isinstance(board.get_piece((0, rank)), Rook) and not board.get_piece((0, rank)).hasMoved:
+                    if not board.get_piece((1, rank)):
+                        for column in range(2, 4):
+                            if board.get_piece((column, rank)) or self.try_check(board, Position(column, rank)):
+                                break
+                        else:
+                            validMoves.append(Position((2, rank)))
+                # Kingside castle
+                if isinstance(board.get_piece((7, rank)), Rook) and not board.get_piece((7, rank)).hasMoved:
+                    for column in range(5, 7):
+                        if board.get_piece((column, rank)) or self.try_check(board, Position(column, rank)):
+                            break
+                    else:
+                        validMoves.append(Position((6, rank)))
+        return validMoves
 
 
 def assign_images(tile_size: int):
