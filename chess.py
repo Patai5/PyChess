@@ -33,10 +33,11 @@ class Board:
         self.board = [[None for rank in range(8)] for column in range(8)]
         self.lastMove = None
         self.promotion = None
+        self.result = None
 
         for piece in pieces:
             self.set_piece(piece)
-
+            # Saves the kings for easier access
             if isinstance(piece, King):
                 if piece.color == True:
                     self.whiteKing = piece
@@ -55,8 +56,12 @@ class Board:
         for column in range(8):
             for rank in range(8):
                 piece = self.get_piece((column, rank))
-                if piece and not color or piece and color and piece.color == color:
-                    pieces.append(piece)
+                if piece:
+                    if color != None:
+                        if piece.color == color:
+                            pieces.append(piece)
+                    else:
+                        pieces.append(piece)
         return pieces
 
     def set_piece(self, piece, position: Position = None):
@@ -101,6 +106,57 @@ class Board:
         # Normal move
         else:
             self.move_piece(piece, position)
+
+        # Checks for checkmate or stalemate
+        self.round_check()
+
+    def round_check(self):
+        """Checks for checkmate or stalemate"""
+        whitePieces = self.get_pieces(True)
+        blackPieces = self.get_pieces(False)
+
+        # Checks if the other party has any valid moves
+        color = not self.lastMove.piece.color
+        if not any(self.get_valid_moves(color)):
+            if self.get_king(color).is_under_check(self):
+                if color:
+                    self.end_game(blackWins=True)
+                else:
+                    self.end_game(whiteWins=True)
+            else:
+                self.end_game(stalemate=True)
+        elif len(whitePieces) <= 2 and len(blackPieces) <= 2:
+            whitePiecesDict = piece_count(whitePieces)
+            blackPiecesDict = piece_count(blackPieces)
+
+            # King vs King
+            if len(whitePieces) == 1 and len(blackPieces) == 1:
+                self.end_game(stalemate=True)
+            # King + Bishop(same diagonal) vs King + Bishop(same diagonal)
+            if len(whitePieces) == 2 and len(blackPieces) == 2:
+                if whitePiecesDict.get(Bishop) == 1 and blackPiecesDict.get(Bishop):
+                    bishop1, bishop2 = filter(
+                        lambda piece: True if isinstance(piece, Bishop) else False, whitePieces + blackPieces
+                    )
+                    if bishop1.diagonal == bishop2.diagonal:
+                        self.end_game(stalemate=True)
+            # King vs King + Knight or Bishop
+            whiteList = [whitePieces, whitePiecesDict]
+            blackList = [blackPieces, blackPiecesDict]
+            for color1, color2 in [[whiteList, blackList], [blackList, whiteList]]:
+                if len(color1[0]) == 1:
+                    if len(color2[0]) == 2:
+                        if color2[1].get(Bishop) == 1 or color2[1].get(Knight) == 1:
+                            self.end_game(stalemate=True)
+
+    def end_game(self, whiteWins: bool = False, blackWins: bool = False, stalemate: bool = False):
+        """Sets the the board atributes coresponding to the game result"""
+        if whiteWins:
+            self.result = 0
+        elif blackWins:
+            self.result = 1
+        elif stalemate:
+            self.result = 2
 
     def is_enpassant(self, piece, position: Position) -> bool:
         """Returns true if the move is an enpassant move"""
@@ -156,6 +212,25 @@ class Board:
             return self.whiteKing
         else:
             return self.blackKing
+
+    def get_valid_moves(self, color: bool = None) -> List:
+        """Returns a 2D array of pieces and their moves as [Piece[Move]]"""
+        pieces = self.get_pieces(color)
+        # Looping through the pieces and storing their valid moves in a list
+        for i, piece in enumerate(pieces):
+            pieces[i] = piece.get_valid_moves(self)
+        return pieces
+
+
+def piece_count(pieces: List) -> dict:
+    """Returns a dict of piece types and their count in the given list"""
+    piecesDict = {}
+    for piece in [piece.__class__ for piece in pieces]:
+        if piece in piecesDict:
+            piecesDict[piece] += 1
+        else:
+            piecesDict[piece] = 1
+    return piecesDict
 
 
 class Piece:
@@ -361,6 +436,7 @@ class Knight(Piece):
 class Bishop(Piece):
     def __init__(self, position: Position, color: bool):
         super().__init__(position, color)
+        self.diagonal = (self.position.column + self.position.rank) % 2
 
     @color_to_play
     @filter_checks
@@ -432,7 +508,7 @@ class King(Piece):
             if not instancesOf:
                 instancesOf = firstInstanceOf
             # Pawn
-            if isinstance(firstInstanceOf, Pawn):
+            if firstInstanceOf == Pawn:
                 # Pawn can only move forward
                 if self.color:
                     rank = self.position.rank - 1
@@ -449,6 +525,13 @@ class King(Piece):
                             and board.get_piece(position).color != self.color
                         ):
                             return True
+                else:
+                    return False
+            # King
+            elif firstInstanceOf == King:
+                for position in self.get_valid_moves(board, noCastle=True, noFilterChecks=True):
+                    if isinstance(board.get_piece(position), King) and board.get_piece(position).color != self.color:
+                        return True
                 else:
                     return False
             # Normal
@@ -476,10 +559,13 @@ class King(Piece):
         # Bishop and queen
         if check_piece(Bishop, (Bishop, Queen)):
             return True
+        # King
+        if check_piece(King):
+            return True
 
     @color_to_play
     @filter_checks
-    def get_valid_moves(self, board: Board, **kwargs) -> list:
+    def get_valid_moves(self, board: Board, noCastle: bool = False, **kwargs) -> list:
         """Returns a list of all valid moves for the piece"""
         # King can move in any direction one tile
         validMoves = []
@@ -496,7 +582,8 @@ class King(Piece):
                             validMoves.append(possibleMove)
 
         # King can also castle if it has not moved yet
-        if not self.hasMoved:
+        # Doesn't pass if argument noCastle is set to True
+        if not self.hasMoved and not noCastle:
             # Can't castle if the king is under check
             if not self.try_check(board, self.position):
                 # King can castle with a rook that also hasn't moved yet

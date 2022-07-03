@@ -1,3 +1,6 @@
+import sys
+from typing import Tuple
+
 import pygame
 
 import chess
@@ -10,6 +13,7 @@ FPS = 60
 # Pygame setup
 win = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("Chess")
+pygame.font.init()
 
 # Chessboard visual settings
 TILE_SIZE = 90
@@ -31,6 +35,21 @@ PROMOTION_BORDER_SIZE = 3
 PROMOTION_BORDER_COLOR = "#272522"
 PROMOTION_BUTTON_BACKGROUND_COLOR = "#1F1E1B"
 PROMOTION_PROMOTE_TO_PIECES = (chess.Queen, chess.Knight, chess.Rook, chess.Bishop)
+
+# Results box settings
+RESULTS_BORDER_SIZE = 5
+RESULTS_BORDER_COLOR = "#565352"
+RESULTS_BACKGROUND_COLOR = "#FFFFFF"
+RESULTS_FONT = pygame.font.SysFont("Source Sans Pro", int(TILE_SIZE // 2.75), True)
+RESULTS_WIDTH = TILE_SIZE * 3.5
+RESULTS_HEIGHT = TILE_SIZE * 4.5
+# Result buttons settings
+RESULTS_BUTTON_BORDER_SIZE = 3
+RESULTS_BUTTON_BORDER_COLOR = "#565352"
+RESULTS_BUTTON_BACKGROUND_COLOR = "#7FA650"
+RESULTS_BUTTON_FONT = pygame.font.SysFont("Arial", int(TILE_SIZE // 3.25), True)
+RESULTS_BUTTON_WIDTH = TILE_SIZE * 2.4
+RESULTS_BUTTON_HEIGHT = RESULTS_BUTTON_FONT.get_height() * 1.5
 
 
 def generate_board():
@@ -125,25 +144,66 @@ def get_mouse_position() -> chess.Position:
         return None
 
 
-def get_clicked_promotion():
-    """Gets the clicked promotion piece under the mouse"""
-    BORDER_SIZE = PROMOTION_BORDER_SIZE
+def draw_result_box(board: chess.Board):
+    """Draws the results of the game"""
+    resultBox = pygame.Surface((RESULTS_WIDTH, RESULTS_HEIGHT))
+    # Background
+    resultBox.fill(RESULTS_BACKGROUND_COLOR)
+    # Border
+    pygame.draw.rect(resultBox, RESULTS_BORDER_COLOR, resultBox.get_rect(), RESULTS_BORDER_SIZE)
+    # Write a text of who has won
+    if board.result == 0:
+        text = "White has won!"
+    elif board.result == 1:
+        text = "Black has won!"
+    else:
+        text = "It's a draw!"
+    resultText = RESULTS_FONT.render(text, True, (0, 0, 0))
+    resultBox.blit(resultText, ((RESULTS_WIDTH - resultText.get_width()) / 2, resultText.get_height() * 2))
 
+    def draw_button(text: str, position: Tuple[int, int]):
+        """Draws a button with the given text"""
+        # Button size
+        button = pygame.Surface((BUTTON_WIDTH, BUTTON_HEIGHT))
+        # Background
+        button.fill(RESULTS_BUTTON_BACKGROUND_COLOR)
+        # Border
+        pygame.draw.rect(button, RESULTS_BUTTON_BORDER_COLOR, button.get_rect(), RESULTS_BUTTON_BORDER_SIZE)
+        # Button text
+        buttonText = RESULTS_BUTTON_FONT.render(text, True, (255, 255, 255))
+        # Drawing the text
+        button.blit(
+            buttonText, ((BUTTON_WIDTH - buttonText.get_width()) / 2, (BUTTON_HEIGHT - buttonText.get_height()) / 2)
+        )
+        # Drawing the button
+        resultBox.blit(button, position)
+
+    BUTTON_WIDTH = RESULTS_BUTTON_WIDTH
+    BUTTON_HEIGHT = RESULTS_BUTTON_HEIGHT
+    # New game button
+    draw_button("New game", ((RESULTS_WIDTH - BUTTON_WIDTH) / 2, RESULTS_HEIGHT / 2 + BUTTON_HEIGHT))
+    # Quit button
+    draw_button("Quit", ((RESULTS_WIDTH - BUTTON_WIDTH) / 2, RESULTS_HEIGHT / 2 + BUTTON_HEIGHT * 2.5))
+
+    win.blit(resultBox, (WIDTH / 2 - RESULTS_WIDTH / 2, WIDTH / 2 - RESULTS_HEIGHT / 2))
+
+
+def get_clicked_result():
+    """Gets the clicked button in result box"""
     mouse = pygame.mouse.get_pos()
 
-    # Box position, width and height
-    width, height = 4 * (TILE_SIZE + BORDER_SIZE) + BORDER_SIZE, TILE_SIZE + BORDER_SIZE * 2
-    left = WIDTH / 2 - width / 2
-    top = (HEIGHT - chessboard.get_height()) / 2 - height * 1.1
+    BUTTON_WIDTH = RESULTS_BUTTON_WIDTH
+    BUTTON_HEIGHT = RESULTS_BUTTON_HEIGHT
 
-    # Gets the clicked piece and returns it
-    buttons = [
-        pygame.Rect(left + BORDER_SIZE + (TILE_SIZE + BORDER_SIZE) * i, top + BORDER_SIZE, TILE_SIZE, TILE_SIZE)
-        for i in range(4)
-    ]
-    for button, piece in zip(buttons, PROMOTION_PROMOTE_TO_PIECES):
-        if button.collidepoint(mouse):
-            return piece
+    newGameButton = pygame.Rect(WIDTH / 2 - BUTTON_WIDTH / 2, HEIGHT / 2 + BUTTON_HEIGHT, BUTTON_WIDTH, BUTTON_HEIGHT)
+    if newGameButton.collidepoint(mouse):
+        return 0
+
+    quitButton = pygame.Rect(
+        WIDTH / 2 - BUTTON_WIDTH / 2, HEIGHT / 2 + BUTTON_HEIGHT * 2.5, BUTTON_WIDTH, BUTTON_HEIGHT
+    )
+    if quitButton.collidepoint(mouse):
+        return 1
 
 
 def draw_promotion_box(pieceColor: bool = None):
@@ -180,6 +240,27 @@ def draw_promotion_box(pieceColor: bool = None):
     )
 
 
+def get_clicked_promotion():
+    """Gets the clicked promotion piece under the mouse"""
+    BORDER_SIZE = PROMOTION_BORDER_SIZE
+
+    mouse = pygame.mouse.get_pos()
+
+    # Box position, width and height
+    width, height = 4 * (TILE_SIZE + BORDER_SIZE) + BORDER_SIZE, TILE_SIZE + BORDER_SIZE * 2
+    left = WIDTH / 2 - width / 2
+    top = (HEIGHT - chessboard.get_height()) / 2 - height * 1.1
+
+    # Gets the clicked piece and returns it
+    buttons = [
+        pygame.Rect(left + BORDER_SIZE + (TILE_SIZE + BORDER_SIZE) * i, top + BORDER_SIZE, TILE_SIZE, TILE_SIZE)
+        for i in range(4)
+    ]
+    for button, piece in zip(buttons, PROMOTION_PROMOTE_TO_PIECES):
+        if button.collidepoint(mouse):
+            return piece
+
+
 def update(updateBoard: bool, board: chess.Board, selectedPiece: chess.Piece):
     """Updates the board"""
     # Draws stuff only when needed
@@ -193,6 +274,10 @@ def update(updateBoard: bool, board: chess.Board, selectedPiece: chess.Piece):
         # Chessboard
         draw_board(board, selectedPiece)
         win.blit(chessboard, (WIDTH / 2 - 8 / 2 * TILE_SIZE, HEIGHT / 2 - 8 / 2 * TILE_SIZE))
+
+        # Result box
+        if board.result != None:
+            draw_result_box(board)
 
     pygame.display.update()
 
@@ -215,12 +300,26 @@ def main():
             if event.type == pygame.QUIT:
                 run = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
-                if board.promotion:
+                # Getting the clicked button in the result box (End of game)
+                if board.result != None:
+                    clickedOn = get_clicked_result()
+                    # New game
+                    if clickedOn == 0:
+                        board = generate_board()
+                        updateBoard = True
+                    # Quit
+                    elif clickedOn == 1:
+                        pygame.display.quit()
+                        pygame.quit()
+                        sys.exit()
+                # Getting the clicked button in the promotion box (When a pawn is promoting)
+                elif board.promotion:
                     # Promoting a pawn
                     promoteTo = get_clicked_promotion()
                     if promoteTo:
                         board.promote(promoteTo)
                         updateBoard = True
+                # Regular piece movement and selection
                 else:
                     # Moving and selecting pieces
                     # If there is a selected piece, move it
