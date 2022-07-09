@@ -3,7 +3,10 @@ from typing import Tuple
 
 import pygame
 
+import ai
 import chess
+
+AI_DEPTH = 4
 
 # Window settings
 WIDTH = 1000
@@ -30,24 +33,27 @@ background = pygame.Surface((WIDTH, HEIGHT))
 background.fill(BACKGROUND_COLOR)
 chessboard = pygame.Surface((8 * TILE_SIZE, 8 * TILE_SIZE))
 
-# Promotion box settings
+# Promotion box settings and AI button settings
 PROMOTION_BORDER_SIZE = 3
 PROMOTION_BORDER_COLOR = "#272522"
 PROMOTION_BUTTON_BACKGROUND_COLOR = "#1F1E1B"
 PROMOTION_PROMOTE_TO_PIECES = (chess.Queen, chess.Knight, chess.Rook, chess.Bishop)
+# AI button
+AI_BUTTON_WIDTH = int(TILE_SIZE / 1.25)
+AI_BUTTON_HEIGHT = int(TILE_SIZE / 2.5)
 
 # Results box settings
 RESULTS_BORDER_SIZE = 5
 RESULTS_BORDER_COLOR = "#565352"
 RESULTS_BACKGROUND_COLOR = "#FFFFFF"
-RESULTS_FONT = pygame.font.SysFont("Source Sans Pro", int(TILE_SIZE // 2.75), True)
+RESULTS_FONT = pygame.font.SysFont("Source Sans Pro", int(TILE_SIZE / 2.75), True)
 RESULTS_WIDTH = TILE_SIZE * 3.5
 RESULTS_HEIGHT = TILE_SIZE * 4.5
 # Result buttons settings
 RESULTS_BUTTON_BORDER_SIZE = 3
 RESULTS_BUTTON_BORDER_COLOR = "#565352"
 RESULTS_BUTTON_BACKGROUND_COLOR = "#7FA650"
-RESULTS_BUTTON_FONT = pygame.font.SysFont("Arial", int(TILE_SIZE // 3.25), True)
+RESULTS_BUTTON_FONT = pygame.font.SysFont("Arial", int(TILE_SIZE / 3.25), True)
 RESULTS_BUTTON_WIDTH = TILE_SIZE * 2.4
 RESULTS_BUTTON_HEIGHT = RESULTS_BUTTON_FONT.get_height() * 1.5
 
@@ -261,7 +267,46 @@ def get_clicked_promotion():
             return piece
 
 
-def update(updateBoard: bool, board: chess.Board, selectedPiece: chess.Piece):
+def draw_ai_button(AI):
+    """Draws the AI switch button"""
+    BORDER_SIZE = PROMOTION_BORDER_SIZE
+    BORDER_COLOR = PROMOTION_BORDER_COLOR
+    BACKGROUND_COLOR = PROMOTION_BUTTON_BACKGROUND_COLOR
+
+    button = pygame.Surface((AI_BUTTON_WIDTH, AI_BUTTON_HEIGHT))
+    button.fill(BACKGROUND_COLOR)
+    pygame.draw.rect(button, BORDER_COLOR, button.get_rect(), BORDER_SIZE)
+
+    # AI off
+    if AI == None:
+        color = (128, 0, 0)
+        left = BORDER_SIZE
+    else:
+        color = (128, 128, 128) if AI else (0, 0, 0)
+        left = TILE_SIZE / 1.25 / 2
+    pygame.draw.rect(
+        button,
+        color,
+        (left, BORDER_SIZE, TILE_SIZE / 1.25 / 2 - BORDER_SIZE, TILE_SIZE / 2.5 - BORDER_SIZE * 2),
+    )
+
+    win.blit(
+        button,
+        (WIDTH * 0.75 + chessboard.get_width() / 4 - AI_BUTTON_WIDTH / 2, HEIGHT / 2 - AI_BUTTON_HEIGHT / 2),
+    )
+
+
+def clicked_ai_button() -> bool:
+    """Returns if the mouse has clicked on the button"""
+    return pygame.Rect(
+        WIDTH * 0.75 + chessboard.get_width() / 4 - AI_BUTTON_WIDTH / 2,
+        HEIGHT / 2 - AI_BUTTON_HEIGHT / 2,
+        AI_BUTTON_WIDTH,
+        AI_BUTTON_HEIGHT,
+    ).collidepoint(pygame.mouse.get_pos())
+
+
+def update(updateBoard: bool, board: chess.Board, selectedPiece: chess.Piece, AI):
     """Updates the board"""
     # Draws stuff only when needed
     if updateBoard:
@@ -279,17 +324,21 @@ def update(updateBoard: bool, board: chess.Board, selectedPiece: chess.Piece):
         if board.result != None:
             draw_result_box(board)
 
+        # AI switch button
+        draw_ai_button(AI)
+
     pygame.display.update()
 
 
 def main():
     board = generate_board()
     selectedPiece = None
+    AI = None
 
     # Draws the screen for the first time
     chess.assign_images(TILE_SIZE)
     win.blit(background, (0, 0))
-    update(True, board, selectedPiece)
+    update(True, board, selectedPiece, AI)
 
     clock = pygame.time.Clock()
     run = True
@@ -300,6 +349,22 @@ def main():
             if event.type == pygame.QUIT:
                 run = False
             elif event.type == pygame.MOUSEBUTTONDOWN:
+                # Clicking on AI switch button
+                if clicked_ai_button():
+                    # Switches the AI on and off
+                    if AI == None:
+                        # Turn on
+                        if not board.lastMove:
+                            # First move
+                            AI = True
+                        else:
+                            # Locks the AI to play as the current color to move
+                            AI = not board.lastMove.piece.color
+                        ai.make_move(board, AI_DEPTH)
+                    else:
+                        # Turn off
+                        AI = None
+                    updateBoard = True
                 # Getting the clicked button in the result box (End of game)
                 if board.result != None:
                     clickedOn = get_clicked_result()
@@ -330,6 +395,8 @@ def main():
                             # Only move to a valid position
                             if clickedTile in selectedPiece.get_valid_moves(board):
                                 board.move(selectedPiece, clickedTile)
+                                if AI != None:
+                                    ai.make_move(board, AI_DEPTH)
                                 updateBoard = True
                             selectedPiece = None
                         updateBoard = True
@@ -341,7 +408,7 @@ def main():
                             updateBoard = True
 
         # Updates the board
-        update(updateBoard, board, selectedPiece)
+        update(updateBoard, board, selectedPiece, AI)
 
         # Locking the framerate
         clock.tick(FPS)
